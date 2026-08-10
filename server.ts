@@ -140,7 +140,8 @@ async function startServer() {
     await seedInitialData();
 
     const app = express();
-    const PORT = 3000;
+    // Hanki portti ympäristöstä (Cloud Run asettaa PORT=8080), oletus 3000 lokaaliin
+    const PORT = Number(process.env.PORT) || 3000;
 
     app.use(express.json());
 

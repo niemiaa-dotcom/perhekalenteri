@@ -24,6 +24,6 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY server.ts ./
 
-EXPOSE 3000
+EXPOSE 8080
 # = package.json:n "start"-skripti (node server.ts)
 CMD ["node", "server.ts"]
