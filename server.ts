@@ -424,42 +424,68 @@ async function startServer() {
     }
   });
 
-  // Reminder Check Loop
-  setInterval(async () => {
+  // ==== Reminder check ====
+  // Ajaa muistutustarkistuksen: lähettää sähköpostin + push-ilmoituksen
+  // tapahtumista/tehtävistä, joiden muistutusaika on mennyt (mutta itse
+  // tapahtuma ei ole vielä alkanut). `reminder_sent_at`-lippu estää
+  // uudelleenlähetykset ja mahdollistaa väliin jääneiden lähetyksen, kun
+  // instanssi herää (Cloud Run jäädyttää joutilaan instanssin).
+  async function runReminderCheck() {
     try {
       const now = new Date();
       const subscriptions = await getCollection("push_subscriptions") as any[];
       const allMembers = await getCollection("family_members") as any[];
       const canSendPush = subscriptions.length > 0;
       const emailConfigured = !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
-      
+
       if (!canSendPush && !emailConfigured) return;
-      
+
+      const markSent = async (collectionName: string, id: string) => {
+        const sentAt = new Date().toISOString();
+        if (!isFirestoreAvailable || !firestore) {
+          const arr = memoryStorage[collectionName] as any[];
+          const idx = arr.findIndex(x => x.id === id);
+          if (idx !== -1) arr[idx].reminder_sent_at = sentAt;
+          return;
+        }
+        try {
+          await firestore.collection(collectionName).doc(id).update({ reminder_sent_at: sentAt });
+        } catch (err: any) {
+          handleFirestoreError(err, collectionName);
+        }
+      };
+
+      const fmtHelsinki = (d: Date, withDate = true) => {
+        const datePart = withDate ? d.toLocaleDateString('fi-FI', { timeZone: 'Europe/Helsinki', day: 'numeric', month: 'numeric' }) + " klo " : "";
+        return datePart + d.toLocaleTimeString('fi-FI', { timeZone: 'Europe/Helsinki', hour: '2-digit', minute: '2-digit' });
+      };
+
       // Check Events
       let upcomingEvents: any[] = [];
       try {
         const allEvents = await getCollection("events");
-        upcomingEvents = allEvents.filter(event => 
-          event.reminder_minutes != null && 
-          event.start_time && 
-          new Date(event.start_time) > now
+        upcomingEvents = allEvents.filter(event =>
+          event.reminder_minutes != null &&
+          event.start_time &&
+          new Date(event.start_time) > now &&
+          !event.reminder_sent_at
         );
       } catch (e: any) {
         console.error("Error fetching events for reminders:", e.message);
       }
-      
+
       for (const event of upcomingEvents) {
         try {
           const startTime = new Date(event.start_time);
           const reminderTime = new Date(startTime.getTime() - event.reminder_minutes * 60000);
-          
-          if (now >= reminderTime && now.getTime() - reminderTime.getTime() < 60000) {
+
+          if (now >= reminderTime) {
             const payload = JSON.stringify({
               title: "Muistutus: " + event.title,
-              body: `Alkaa klo ${startTime.toLocaleTimeString('fi-FI', { timeZone: 'Europe/Helsinki', hour: '2-digit', minute: '2-digit' })}`,
+              body: `Alkaa ${fmtHelsinki(startTime)}`,
               url: "/?tab=calendar"
             });
-            
+
             if (emailConfigured) {
               let targetEmails: string[] = [];
               if (event.member_ids && event.member_ids.length > 0) {
@@ -467,19 +493,19 @@ async function startServer() {
                   .filter(m => event.member_ids.includes(m.id) && m.email)
                   .map(m => m.email);
               }
-              
+
               targetEmails = [...new Set(targetEmails)];
-              
+
               if (targetEmails.length > 0) {
                 transporter.sendMail({
                   from: process.env.EMAIL_USER,
                   to: targetEmails.join(','),
                   subject: `Perheen Seinä: ${event.title}`,
-                  text: `Muistutus tapahtumasta!\n\nNimi: ${event.title}\nAlkaa: ${startTime.toLocaleTimeString('fi-FI', { timeZone: 'Europe/Helsinki', hour: '2-digit', minute: '2-digit' })}\n\nAvaa sovellus nähdäksesi lisätiedot.`
+                  text: `Muistutus tapahtumasta!\n\nNimi: ${event.title}\nAlkaa: ${fmtHelsinki(startTime)}\n\nAvaa sovellus nähdäksesi lisätiedot.`
                 }).catch(err => console.error("Failed to send email:", err));
               }
             }
-            
+
             subscriptions.forEach(sub => {
               if (!sub.subscription) return;
               webpush.sendNotification(JSON.parse(sub.subscription), payload).catch(async err => {
@@ -494,6 +520,8 @@ async function startServer() {
                 }
               });
             });
+
+            await markSent("events", event.id);
           }
         } catch (eventErr) {}
       }
@@ -502,25 +530,26 @@ async function startServer() {
       let upcomingTodos: any[] = [];
       try {
         const allTodos = await getCollection("todos");
-        upcomingTodos = allTodos.filter(todo => 
-          todo.reminder_minutes != null && 
-          todo.completed === 0 && 
-          todo.due_date && 
-          new Date(todo.due_date) > now
+        upcomingTodos = allTodos.filter(todo =>
+          todo.reminder_minutes != null &&
+          todo.completed === 0 &&
+          todo.due_date &&
+          new Date(todo.due_date) > now &&
+          !todo.reminder_sent_at
         );
       } catch (e: any) {
         console.error("Error fetching todos for reminders:", e.message);
       }
-      
+
       for (const todo of upcomingTodos) {
         try {
           const dueDate = new Date(todo.due_date);
           const reminderTime = new Date(dueDate.getTime() - todo.reminder_minutes * 60000);
 
-          if (now >= reminderTime && now.getTime() - reminderTime.getTime() < 60000) {
+          if (now >= reminderTime) {
             const payload = JSON.stringify({
               title: "Tehtävämuistutus: " + todo.task,
-              body: `Erääntyy klo ${dueDate.toLocaleTimeString('fi-FI', { timeZone: 'Europe/Helsinki', hour: '2-digit', minute: '2-digit' })}`,
+              body: `Erääntyy ${fmtHelsinki(dueDate)}`,
               url: "/?tab=todos"
             });
 
@@ -531,15 +560,15 @@ async function startServer() {
                   .filter(m => todo.member_ids.includes(m.id) && m.email)
                   .map(m => m.email);
               }
-              
+
               targetEmails = [...new Set(targetEmails)];
-              
+
               if (targetEmails.length > 0) {
                 transporter.sendMail({
                   from: process.env.EMAIL_USER,
                   to: targetEmails.join(','),
                   subject: `Perheen Seinä: ${todo.task}`,
-                  text: `Muistutus tehtävästä!\n\nTehtävä: ${todo.task}\nErääntyy: ${dueDate.toLocaleTimeString('fi-FI', { timeZone: 'Europe/Helsinki', hour: '2-digit', minute: '2-digit' })}\n\nAvaa sovellus nähdäksesi lisätiedot.`
+                  text: `Muistutus tehtävästä!\n\nTehtävä: ${todo.task}\nErääntyy: ${fmtHelsinki(dueDate)}\n\nAvaa sovellus nähdäksesi lisätiedot.`
                 }).catch(err => console.error("Failed to send email:", err));
               }
             }
@@ -558,13 +587,34 @@ async function startServer() {
                 }
               });
             });
+
+            await markSent("todos", todo.id);
           }
         } catch (todoErr) {}
       }
     } catch (err: any) {
       console.error("Reminder check loop failed:", err.message);
     }
-  }, 60000);
+  }
+
+  // Aja heti käynnistyksessä (lähettää väliin jääneet muistutukset deployn jälkeen)
+  runReminderCheck();
+
+  // Minuutin välein, kun instanssi on elossa
+  setInterval(runReminderCheck, 60000);
+
+  // Cloud Scheduler -endpoint serverless-ympäristöä varten:
+  // Cloud Run jäädyttää joutilaan instanssin, joten setInterval ei yksin riitä.
+  // Cloud Scheduler kutsuu tätä säännöllisesti (esim. joka minuutti).
+  // Suojaus: jos CRON_SECRET on asetettu, kutsu vaatii ?secret=<arvo>.
+  app.get("/api/cron/check-reminders", async (req, res) => {
+    const secret = process.env.CRON_SECRET;
+    if (secret && req.query.secret !== secret) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    await runReminderCheck();
+    res.json({ success: true, checkedAt: new Date().toISOString() });
+  });
 
   app.get("/api/shopping", async (req, res) => {
     try {
