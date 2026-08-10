@@ -308,7 +308,7 @@ export const Calendar: React.FC<CalendarProps> = ({
                         startDate: dateStr, startHour: pad(hour), startMinute: '00',
                         endDate: dateStr, endHour: pad(hour + 1), endMinute: '00',
                         member_ids: members[0] ? [members[0].id] : [], recurrence_type: 'none', hasEndDate: false,
-                        reminder_minutes: 0
+                        reminder_days: 0
                       });
                       setShowEventModal(true);
                     }}
@@ -458,7 +458,7 @@ export const Calendar: React.FC<CalendarProps> = ({
                           startDate: dateStr, startHour: '12', startMinute: '00',
                           endDate: dateStr, endHour: '13', endMinute: '00',
                           member_ids: members[0] ? [members[0].id] : [], recurrence_type: 'none', hasEndDate: false,
-                          reminder_minutes: 0
+                          reminder_days: 0
                         });
                         setShowEventModal(true);
                       }}
@@ -606,7 +606,7 @@ export const Calendar: React.FC<CalendarProps> = ({
                             startDate: dateStr, startHour: '12', startMinute: '00',
                             endDate: dateStr, endHour: '13', endMinute: '00',
                             member_ids: members[0] ? [members[0].id] : [], recurrence_type: 'none', hasEndDate: false,
-                            reminder_minutes: 0
+                            reminder_days: 0
                           });
                           setShowEventModal(true);
                         }}

@@ -13,7 +13,7 @@ export interface CalendarEvent {
   end_time: string;
   member_ids: string[];
   recurrence_type: 'none' | 'daily' | 'weekly' | 'monthly';
-  reminder_minutes?: number; // Minutes before event to show notification
+  reminder_minutes?: number; // Minutes before event to send email reminder (days*1440)
 }
 
 export interface Todo {
