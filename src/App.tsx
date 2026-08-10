@@ -219,7 +219,8 @@ export default function App() {
     endDate: '', endHour: '13', endMinute: '00',
     member_ids: [] as string[], recurrence_type: 'none' as 'none' | 'daily' | 'weekly' | 'monthly',
     hasEndDate: false,
-    reminder_days: 0
+    reminder_days: 0,
+    reminder_minutes: 0
   });
 
   const [newTodo, setNewTodo] = useState({ 
@@ -349,7 +350,9 @@ export default function App() {
         member_ids: newEvent.member_ids.map(id => String(id)),
         start_time: startDateTime.toISOString(),
         end_time: endDateTime.toISOString(),
-        reminder_minutes: newEvent.reminder_days > 0 ? newEvent.reminder_days * 1440 : null
+        reminder_minutes: (newEvent.reminder_days > 0 || newEvent.reminder_minutes > 0)
+          ? (newEvent.reminder_days * 1440) + newEvent.reminder_minutes
+          : null
       };
       
       const url = editingEventId ? `/api/events/${editingEventId}` : '/api/events';
@@ -380,7 +383,7 @@ export default function App() {
         startDate: '', startHour: '12', startMinute: '00',
         endDate: '', endHour: '13', endMinute: '00',
         member_ids: members[0] ? [String(members[0].id)] : [], recurrence_type: 'none', hasEndDate: false,
-        reminder_days: 0
+        reminder_days: 0, reminder_minutes: 0
       });
       fetchData();
     } catch (error: any) {
@@ -422,7 +425,8 @@ export default function App() {
       member_ids: parsedMemberIds,
       recurrence_type: event.recurrence_type,
       hasEndDate: startDateStr !== endDateStr,
-      reminder_days: event.reminder_minutes ? Math.round((event.reminder_minutes || 0) / 1440) : 0
+      reminder_days: event.reminder_minutes ? Math.floor((event.reminder_minutes || 0) / 1440) : 0,
+      reminder_minutes: event.reminder_minutes ? (event.reminder_minutes || 0) % 1440 : 0
     });
     setShowEventModal(true);
   };
@@ -718,7 +722,7 @@ export default function App() {
                   startDate: currentDate.toISOString().split('T')[0], startHour: '12', startMinute: '00',
                   endDate: currentDate.toISOString().split('T')[0], endHour: '13', endMinute: '00',
                   member_ids: members[0] ? [members[0].id] : [], recurrence_type: 'none', hasEndDate: false,
-                  reminder_days: 0
+                  reminder_days: 0, reminder_minutes: 0
                 });
                 setShowEventModal(true);
               }}
@@ -1297,20 +1301,36 @@ export default function App() {
                       <Bell size={18} />
                       <span className="text-xs font-bold uppercase tracking-widest">Sähköpostimuistutus</span>
                     </div>
-                    <div>
-                      <label className="block text-[10px] uppercase tracking-widest font-bold text-slate-500 mb-2">
-                        Päivää ennen tapahtumaa (0 = ei muistutusta)
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        value={newEvent.reminder_days}
-                        onChange={e => setNewEvent({...newEvent, reminder_days: Math.max(0, parseInt(e.target.value) || 0)})}
-                        className="w-full bg-slate-800/50 rounded-2xl border border-slate-700/50 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 p-4 text-sm text-slate-200 transition-all"
-                        placeholder="Esim. 3"
-                      />
-                      <p className="text-[10px] text-slate-500 mt-1">Muistutus lähetetään sähköpostitse valitsemasi määrän päiviä ennen tapahtumaa.</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] uppercase tracking-widest font-bold text-slate-500 mb-2">
+                          Päivää ennen
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={newEvent.reminder_days}
+                          onChange={e => setNewEvent({...newEvent, reminder_days: Math.max(0, parseInt(e.target.value) || 0)})}
+                          className="w-full bg-slate-800/50 rounded-2xl border border-slate-700/50 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 p-4 text-sm text-slate-200 transition-all"
+                          placeholder="Esim. 3"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] uppercase tracking-widest font-bold text-slate-500 mb-2">
+                          Minuuttia ennen
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={1439}
+                          value={newEvent.reminder_minutes}
+                          onChange={e => setNewEvent({...newEvent, reminder_minutes: Math.min(1439, Math.max(0, parseInt(e.target.value) || 0))})}
+                          className="w-full bg-slate-800/50 rounded-2xl border border-slate-700/50 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 p-4 text-sm text-slate-200 transition-all"
+                          placeholder="Esim. 30"
+                        />
+                      </div>
                     </div>
+                    <p className="text-[10px] text-slate-500">Muistutus lähetetään vapaavalintaisesti päiviä ja/tai minuutteja ennen tapahtumaa. Anna molemmat tyhjinä (0) = ei muistutusta.</p>
                   </div>
 
                   {/* Description */}
@@ -1614,7 +1634,7 @@ export default function App() {
                 startDate: currentDate.toISOString().split('T')[0], startHour: '12', startMinute: '00',
                 endDate: currentDate.toISOString().split('T')[0], endHour: '13', endMinute: '00',
                 member_ids: members[0] ? [members[0].id] : [], recurrence_type: 'none', hasEndDate: false,
-                reminder_days: 0
+                reminder_days: 0, reminder_minutes: 0
               });
               setShowEventModal(true);
             }}
