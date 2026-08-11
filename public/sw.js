@@ -55,7 +55,7 @@ self.addEventListener('push', function(event) {
   const data = event.data.json();
   const options = {
     body: data.body,
-    icon: '/icon-192.png', // Placeholder icon
+    icon: '/icons/icon-192.png',
     badge: '/badge.png',
     data: {
       url: data.url
