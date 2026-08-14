@@ -645,7 +645,7 @@ const FoodPlanner: React.FC = () => {
                       </div>
                       <span className="text-[10px] font-bold bg-slate-950 text-slate-500 px-2 py-0.5 rounded-lg ml-2">{item.category}</span>
                     </div>
-                    <button onClick={() => deletePantryItem(item.id)} className="text-slate-600 hover:text-red-400 p-2 opacity-0 group-hover:opacity-100 transition-all" title="Poista">
+                    <button onClick={() => deletePantryItem(item.id)} className="text-slate-500 hover:text-red-400 p-2 transition-all" title="Poista">
                       <Trash2 size={16} />
                     </button>
                   </div>

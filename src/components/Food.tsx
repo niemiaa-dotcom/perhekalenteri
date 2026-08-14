@@ -185,7 +185,8 @@ export const Food: React.FC = () => {
                         </div>
                         <button 
                           onClick={() => deleteItem(item.id)}
-                          className="p-2 text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                          className="p-2 text-slate-500 hover:text-red-400 transition-all"
+                          title="Poista"
                         >
                           <Trash2 size={16} />
                         </button>
