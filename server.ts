@@ -48,7 +48,9 @@ const memoryStorage: Record<string, any[]> = {
   shopping_list: [],
   saved_meal_plans: [],
   push_subscriptions: [],
-  settings: []
+  settings: [],
+  recipes: [],
+  pantry: []
 };
 
 // Helper to handle Firestore errors and fallback to memory
@@ -702,6 +704,280 @@ async function startServer() {
       res.json({ success: true });
     } catch (err: any) {
       handleFirestoreError(err, "shopping_list");
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==== Recipes API (reseptipankki) ====
+  app.get("/api/recipes", async (req, res) => {
+    try {
+      let recipes = await getCollection("recipes");
+      const { category, diet_tags, q } = req.query;
+      if (category) {
+        recipes = recipes.filter((r: any) => r.category === category);
+      }
+      if (diet_tags) {
+        const tags = String(diet_tags).split(",").map(t => t.trim());
+        recipes = recipes.filter((r: any) => {
+          const rTags: string[] = r.diet_tags || [];
+          return tags.every(t => rTags.includes(t));
+        });
+      }
+      if (q) {
+        const query = String(q).toLowerCase();
+        recipes = recipes.filter((r: any) =>
+          (r.title || "").toLowerCase().includes(query) ||
+          (r.description || "").toLowerCase().includes(query)
+        );
+      }
+      recipes.sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""));
+      res.json(recipes);
+    } catch (err: any) {
+      handleFirestoreError(err, "recipes");
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/recipes", async (req, res) => {
+    try {
+      const { title, description, category, servings, ingredients, instructions, diet_tags, source, notes, favorite } = req.body;
+      if (!title || !title.trim()) {
+        return res.status(400).json({ error: "Reseptin nimi on pakollinen" });
+      }
+      const recipeData = {
+        title,
+        description: description || "",
+        category: category || "pääruoka",
+        servings: servings || 4,
+        ingredients: ingredients || [],
+        instructions: instructions || [],
+        diet_tags: diet_tags || [],
+        source: source || "perhe",
+        notes: notes || "",
+        favorite: favorite || false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      if (!isFirestoreAvailable || !firestore) {
+        const id = Date.now().toString();
+        memoryStorage.recipes = memoryStorage.recipes || [];
+        memoryStorage.recipes.push({ id, ...recipeData });
+        return res.json({ id });
+      }
+
+      const docRef = await firestore.collection("recipes").add(recipeData);
+      res.json({ id: docRef.id });
+    } catch (err: any) {
+      handleFirestoreError(err, "recipes");
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/recipes/:id", async (req, res) => {
+    try {
+      const { title, description, category, servings, ingredients, instructions, diet_tags, source, notes, favorite } = req.body;
+      const updateData: any = { updated_at: new Date().toISOString() };
+      if (title !== undefined) updateData.title = title;
+      if (description !== undefined) updateData.description = description;
+      if (category !== undefined) updateData.category = category;
+      if (servings !== undefined) updateData.servings = servings;
+      if (ingredients !== undefined) updateData.ingredients = ingredients;
+      if (instructions !== undefined) updateData.instructions = instructions;
+      if (diet_tags !== undefined) updateData.diet_tags = diet_tags;
+      if (source !== undefined) updateData.source = source;
+      if (notes !== undefined) updateData.notes = notes;
+      if (favorite !== undefined) updateData.favorite = favorite;
+
+      if (!isFirestoreAvailable || !firestore) {
+        const arr = memoryStorage.recipes || [];
+        const index = arr.findIndex((r: any) => r.id === req.params.id);
+        if (index !== -1) {
+          arr[index] = { ...arr[index], ...updateData };
+        }
+        return res.json({ success: true });
+      }
+
+      await firestore.collection("recipes").doc(req.params.id).update(updateData);
+      res.json({ success: true });
+    } catch (err: any) {
+      handleFirestoreError(err, "recipes");
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/recipes/:id", async (req, res) => {
+    try {
+      if (!isFirestoreAvailable || !firestore) {
+        memoryStorage.recipes = (memoryStorage.recipes || []).filter((r: any) => r.id !== req.params.id);
+        return res.json({ success: true });
+      }
+      await firestore.collection("recipes").doc(req.params.id).delete();
+      res.json({ success: true });
+    } catch (err: any) {
+      handleFirestoreError(err, "recipes");
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==== Pantry API (kaappi) ====
+  app.get("/api/pantry", async (req, res) => {
+    try {
+      const items = await getCollection("pantry");
+      items.sort((a: any, b: any) => (a.item || "").localeCompare(b.item || ""));
+      res.json(items);
+    } catch (err: any) {
+      handleFirestoreError(err, "pantry");
+      res.json([]);
+    }
+  });
+
+  app.post("/api/pantry", async (req, res) => {
+    try {
+      const { item, amount, category } = req.body;
+      if (!item || !item.trim()) {
+        return res.status(400).json({ error: "Tuotteen nimi on pakollinen" });
+      }
+      const pantryData = {
+        item,
+        amount: amount || "",
+        category: category || "muut",
+        added_at: new Date().toISOString()
+      };
+
+      if (!isFirestoreAvailable || !firestore) {
+        const id = Date.now().toString();
+        memoryStorage.pantry = memoryStorage.pantry || [];
+        memoryStorage.pantry.push({ id, ...pantryData });
+        return res.json({ id });
+      }
+
+      const docRef = await firestore.collection("pantry").add(pantryData);
+      res.json({ id: docRef.id });
+    } catch (err: any) {
+      handleFirestoreError(err, "pantry");
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/pantry/:id", async (req, res) => {
+    try {
+      if (!isFirestoreAvailable || !firestore) {
+        memoryStorage.pantry = (memoryStorage.pantry || []).filter((p: any) => p.id !== req.params.id);
+        return res.json({ success: true });
+      }
+      await firestore.collection("pantry").doc(req.params.id).delete();
+      res.json({ success: true });
+    } catch (err: any) {
+      handleFirestoreError(err, "pantry");
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==== Shopping list generation from meal plan (sis. pantry-suodatus) ====
+  app.post("/api/shopping/generate-from-mealplan", async (req, res) => {
+    try {
+      const { meal_plan_id } = req.body;
+      if (!meal_plan_id) {
+        return res.status(400).json({ error: "meal_plan_id on pakollinen" });
+      }
+
+      // Hae viikkosuunnitelma
+      let plan: any = null;
+      if (isFirestoreAvailable && firestore) {
+        const doc = await firestore.collection("saved_meal_plans").doc(meal_plan_id).get();
+        if (doc.exists) plan = { id: doc.id, ...doc.data() };
+      } else {
+        plan = (memoryStorage.saved_meal_plans || []).find((p: any) => p.id === meal_plan_id);
+      }
+      if (!plan || !plan.plan_data) {
+        return res.status(404).json({ error: "Suunnitelmaa ei löytynyt" });
+      }
+
+      // Hae reseptit hajautettuna id:llä
+      let recipes: any[] = [];
+      if (isFirestoreAvailable && firestore) {
+        const snap = await firestore.collection("recipes").get();
+        recipes = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      } else {
+        recipes = memoryStorage.recipes || [];
+      }
+      const recipeById: Record<string, any> = {};
+      recipes.forEach((r: any) => { recipeById[r.id] = r; });
+
+      // Hae pantry
+      let pantryItems: string[] = [];
+      if (isFirestoreAvailable && firestore) {
+        const snap = await firestore.collection("pantry").get();
+        pantryItems = snap.docs.map(doc => String((doc.data() as any).item || "").toLowerCase().trim());
+      } else {
+        pantryItems = (memoryStorage.pantry || []).map((p: any) => String(p.item || "").toLowerCase().trim());
+      }
+
+      // Kerää ja yhdistä ainekset plan_data:sta
+      const planData = typeof plan.plan_data === "string" ? JSON.parse(plan.plan_data) : plan.plan_data;
+      const allIngredients: Record<string, { item: string; amount: string; source: string; recipeTitle: string; already_in_pantry: boolean }> = {};
+
+      const addIngredient = (ing: any, recipeTitle: string) => {
+        if (!ing || !ing.item) return;
+        const key = String(ing.item).toLowerCase().trim();
+        const normalized = key.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        // Yhdistetään sama aines (huom. vain jos ei ole pantryssä)
+        const isInPantry = pantryItems.includes(key) || pantryItems.includes(normalized);
+        if (allIngredients[key]) {
+          // summaa määrät (jos molemmat numeerisia) tai ketjuta
+          const prev = allIngredients[key];
+          prev.amount = prev.amount ? (prev.amount + " + " + (ing.amount || "")) : (ing.amount || "1 kpl");
+          prev.source += ", " + recipeTitle;
+        } else {
+          allIngredients[key] = {
+            item: ing.item,
+            amount: ing.amount || "1 kpl",
+            source: recipeTitle,
+            recipeTitle,
+            already_in_pantry: isInPantry
+          };
+        }
+      };
+
+      // plan_data voi olla: { days, recipes[] } (vanha muoto) TAI { "2026-08-25": { ... } } (päiväkohtainen)
+      if (Array.isArray(planData.recipes)) {
+        planData.recipes.forEach((recipe: any) => {
+          (recipe.ingredients || []).forEach((ing: any) => addIngredient(ing, recipe.title || "Resepti"));
+        });
+      } else {
+        // Päiväkohtainen rakenne: käy läpi jokainen päivä, breakfast/lunch/dinner
+        const dayKeys = Object.keys(planData).filter(k => k !== 'days' && k !== 'recipes');
+        for (const day of dayKeys) {
+          const meals = planData[day];
+          if (!meals || typeof meals !== 'object') continue;
+          const mealKeys = ['breakfast', 'lunch', 'dinner', 'leftovers'];
+          for (const mealKey of mealKeys) {
+            const meal = meals[mealKey];
+            if (!meal) continue;
+            // Jos viittaa recipe_id:hen, hae resepti
+            if (meal.recipe_id && recipeById[meal.recipe_id]) {
+              const r = recipeById[meal.recipe_id];
+              (r.ingredients || []).forEach((ing: any) => addIngredient(ing, r.title || "Resepti"));
+            } else if (typeof meal === 'object' && meal.ingredients) {
+              (meal.ingredients || []).forEach((ing: any) => addIngredient(ing, meal.title || "Ateria"));
+            } else if (typeof meal === 'string') {
+              // vapaa teksti (käsin kirjattu ateria) — ei pureta
+            }
+          }
+        }
+      }
+
+      const result = Object.values(allIngredients).map((v: any) => ({
+        item: v.item,
+        amount: v.amount,
+        source: v.source,
+        already_in_pantry: v.already_in_pantry
+      }));
+
+      res.json(result);
+    } catch (err: any) {
+      console.error("Generate from mealplan error:", err);
       res.status(500).json({ error: err.message });
     }
   });

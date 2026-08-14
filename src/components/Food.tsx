@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ShoppingCart, Utensils, Plus, Trash2, CheckCircle2, Circle, Sparkles, Loader2, Repeat, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import FoodPlanner from './FoodPlanner';
 
 interface ShoppingItem {
   id: string;
@@ -36,7 +37,7 @@ export const Food: React.FC = () => {
   const [ingredients, setIngredients] = useState('');
   const [recipe, setRecipe] = useState<any | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<'shopping' | 'recipes' | 'planner'>('shopping');
+  const [activeSubTab, setActiveSubTab] = useState<'shopping' | 'recipes' | 'planner' | 'planner2'>('shopping');
   
   // Meal Planner state
   const [mealPlan, setMealPlan] = useState<MealPlan | null>(null);
@@ -318,6 +319,13 @@ export const Food: React.FC = () => {
         >
           Ateriasuunnittelija
           {activeSubTab === 'planner' && <motion.div layoutId="subtab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500" />}
+        </button>
+        <button 
+          onClick={() => setActiveSubTab('planner2')}
+          className={`pb-2 px-1 text-sm font-bold transition-all relative ${activeSubTab === 'planner2' ? 'text-slate-100' : 'text-slate-500 hover:text-slate-300'}`}
+        >
+          Reseptipankki & Kaappi
+          {activeSubTab === 'planner2' && <motion.div layoutId="subtab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500" />}
         </button>
       </div>
 
@@ -756,6 +764,7 @@ export const Food: React.FC = () => {
           </AnimatePresence>
         </div>
       )}
+      {activeSubTab === 'planner2' && <FoodPlanner />}
     </div>
   );
 };
