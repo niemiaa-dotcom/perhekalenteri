@@ -989,6 +989,32 @@ async function startServer() {
     }
   });
 
+  app.post("/api/shopping/generate-from-recipe", async (req, res) => {
+    try {
+      const { recipe_id } = req.body;
+      if (!recipe_id) {
+        return res.status(400).json({ error: "recipe_id on pakollinen" });
+      }
+
+      let recipe: any = null;
+      if (isFirestoreAvailable && firestore) {
+        const doc = await firestore.collection("recipes").doc(recipe_id).get();
+        if (doc.exists) recipe = { id: doc.id, ...doc.data() };
+      } else {
+        recipe = (memoryStorage.recipes || []).find((r: any) => r.id === recipe_id);
+      }
+      if (!recipe) {
+        return res.status(404).json({ error: "Reseptiä ei löytynyt" });
+      }
+
+      const result = await buildShoppingPreview([{ title: recipe.title || "Resepti", ingredients: recipe.ingredients || [] }]);
+      res.json(result);
+    } catch (err: any) {
+      console.error("Generate from recipe error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get("/api/export", async (req, res) => {
     const data = {
       members: await getCollection("family_members"),
