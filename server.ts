@@ -873,6 +873,54 @@ async function startServer() {
     }
   });
 
+  // Yhteinen kauppalistaesikatselu: lataa kaappi, yhdistä ainekset, liputa kaapista löytyvät.
+  // Käyttäjät: generate-from-mealplan ja generate-from-recipe.
+  const buildShoppingPreview = async (
+    recipeList: Array<{ title: string; ingredients: any[] }>
+  ): Promise<Array<{ item: string; amount: string; source: string; already_in_pantry: boolean }>> => {
+    // Hae pantry
+    let pantryItems: string[] = [];
+    if (isFirestoreAvailable && firestore) {
+      const snap = await firestore.collection("pantry").get();
+      pantryItems = snap.docs.map(doc => String((doc.data() as any).item || "").toLowerCase().trim());
+    } else {
+      pantryItems = (memoryStorage.pantry || []).map((p: any) => String(p.item || "").toLowerCase().trim());
+    }
+
+    const allIngredients: Record<string, { item: string; amount: string; source: string; recipeTitle: string; already_in_pantry: boolean }> = {};
+
+    const addIngredient = (ing: any, recipeTitle: string) => {
+      if (!ing || !ing.item) return;
+      const key = String(ing.item).toLowerCase().trim();
+      const normalized = key.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const isInPantry = pantryItems.includes(key) || pantryItems.includes(normalized);
+      if (allIngredients[key]) {
+        const prev = allIngredients[key];
+        prev.amount = prev.amount ? (prev.amount + " + " + (ing.amount || "")) : (ing.amount || "1 kpl");
+        prev.source += ", " + recipeTitle;
+      } else {
+        allIngredients[key] = {
+          item: ing.item,
+          amount: ing.amount || "1 kpl",
+          source: recipeTitle,
+          recipeTitle,
+          already_in_pantry: isInPantry
+        };
+      }
+    };
+
+    recipeList.forEach(recipe => {
+      (recipe.ingredients || []).forEach((ing: any) => addIngredient(ing, recipe.title || "Resepti"));
+    });
+
+    return Object.values(allIngredients).map((v: any) => ({
+      item: v.item,
+      amount: v.amount,
+      source: v.source,
+      already_in_pantry: v.already_in_pantry
+    }));
+  };
+
   // ==== Shopping list generation from meal plan (sis. pantry-suodatus) ====
   app.post("/api/shopping/generate-from-mealplan", async (req, res) => {
     try {
@@ -904,45 +952,13 @@ async function startServer() {
       const recipeById: Record<string, any> = {};
       recipes.forEach((r: any) => { recipeById[r.id] = r; });
 
-      // Hae pantry
-      let pantryItems: string[] = [];
-      if (isFirestoreAvailable && firestore) {
-        const snap = await firestore.collection("pantry").get();
-        pantryItems = snap.docs.map(doc => String((doc.data() as any).item || "").toLowerCase().trim());
-      } else {
-        pantryItems = (memoryStorage.pantry || []).map((p: any) => String(p.item || "").toLowerCase().trim());
-      }
-
-      // Kerää ja yhdistä ainekset plan_data:sta
+      // Kerää suunnitelman reseptit yhteiseen muotoon (title + ingredients)
       const planData = typeof plan.plan_data === "string" ? JSON.parse(plan.plan_data) : plan.plan_data;
-      const allIngredients: Record<string, { item: string; amount: string; source: string; recipeTitle: string; already_in_pantry: boolean }> = {};
+      const recipeList: Array<{ title: string; ingredients: any[] }> = [];
 
-      const addIngredient = (ing: any, recipeTitle: string) => {
-        if (!ing || !ing.item) return;
-        const key = String(ing.item).toLowerCase().trim();
-        const normalized = key.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        // Yhdistetään sama aines (huom. vain jos ei ole pantryssä)
-        const isInPantry = pantryItems.includes(key) || pantryItems.includes(normalized);
-        if (allIngredients[key]) {
-          // summaa määrät (jos molemmat numeerisia) tai ketjuta
-          const prev = allIngredients[key];
-          prev.amount = prev.amount ? (prev.amount + " + " + (ing.amount || "")) : (ing.amount || "1 kpl");
-          prev.source += ", " + recipeTitle;
-        } else {
-          allIngredients[key] = {
-            item: ing.item,
-            amount: ing.amount || "1 kpl",
-            source: recipeTitle,
-            recipeTitle,
-            already_in_pantry: isInPantry
-          };
-        }
-      };
-
-      // plan_data voi olla: { days, recipes[] } (vanha muoto) TAI { "2026-08-25": { ... } } (päiväkohtainen)
       if (Array.isArray(planData.recipes)) {
         planData.recipes.forEach((recipe: any) => {
-          (recipe.ingredients || []).forEach((ing: any) => addIngredient(ing, recipe.title || "Resepti"));
+          recipeList.push({ title: recipe.title || "Resepti", ingredients: recipe.ingredients || [] });
         });
       } else {
         // Päiväkohtainen rakenne: käy läpi jokainen päivä, breakfast/lunch/dinner
@@ -954,26 +970,18 @@ async function startServer() {
           for (const mealKey of mealKeys) {
             const meal = meals[mealKey];
             if (!meal) continue;
-            // Jos viittaa recipe_id:hen, hae resepti
             if (meal.recipe_id && recipeById[meal.recipe_id]) {
               const r = recipeById[meal.recipe_id];
-              (r.ingredients || []).forEach((ing: any) => addIngredient(ing, r.title || "Resepti"));
+              recipeList.push({ title: r.title || "Resepti", ingredients: r.ingredients || [] });
             } else if (typeof meal === 'object' && meal.ingredients) {
-              (meal.ingredients || []).forEach((ing: any) => addIngredient(ing, meal.title || "Ateria"));
-            } else if (typeof meal === 'string') {
-              // vapaa teksti (käsin kirjattu ateria) — ei pureta
+              recipeList.push({ title: meal.title || "Ateria", ingredients: meal.ingredients });
             }
+            // vapaa teksti (käsin kirjattu ateria) — ei pureta
           }
         }
       }
 
-      const result = Object.values(allIngredients).map((v: any) => ({
-        item: v.item,
-        amount: v.amount,
-        source: v.source,
-        already_in_pantry: v.already_in_pantry
-      }));
-
+      const result = await buildShoppingPreview(recipeList);
       res.json(result);
     } catch (err: any) {
       console.error("Generate from mealplan error:", err);
