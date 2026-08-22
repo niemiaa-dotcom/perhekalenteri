@@ -37,6 +37,9 @@ const FoodPlanner: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isAddingToShopping, setIsAddingToShopping] = useState(false);
   const [shoppingList, setShoppingList] = useState<any[]>([]);
+  const [recipePreview, setRecipePreview] = useState<{ recipe: Recipe; items: GeneratedShoppingItem[] } | null>(null);
+  const [isGeneratingRecipe, setIsGeneratingRecipe] = useState<string | null>(null);
+  const [isAddingRecipeItems, setIsAddingRecipeItems] = useState(false);
 
   useEffect(() => {
     fetchRecipes();
@@ -279,6 +282,51 @@ const FoodPlanner: React.FC = () => {
     }
   };
 
+  const generateFromRecipe = async (recipe: Recipe) => {
+    setIsGeneratingRecipe(recipe.id);
+    try {
+      const res = await fetch('/api/shopping/generate-from-recipe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipe_id: recipe.id })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Generointi epäonnistui');
+      }
+      const data = await res.json();
+      setRecipePreview({ recipe, items: data });
+    } catch (err: any) {
+      console.error('Error generating shopping list from recipe:', err);
+      alert(err.message || 'Kauppalistan generointi epäonnistui.');
+    } finally {
+      setIsGeneratingRecipe(null);
+    }
+  };
+
+  const addRecipeMissingToShopping = async () => {
+    if (!recipePreview) return;
+    setIsAddingRecipeItems(true);
+    try {
+      const missing = recipePreview.items.filter(i => !i.already_in_pantry);
+      for (const item of missing) {
+        await fetch('/api/shopping', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item: item.item, amount: item.amount })
+        });
+      }
+      fetchShoppingList();
+      setRecipePreview(null);
+      alert(`${missing.length} puuttuvaa ainesta lisätty ostoslistalle!`);
+    } catch (err) {
+      console.error('Error adding recipe items to shopping list:', err);
+      alert('Ainesten lisääminen ostoslistalle epäonnistui.');
+    } finally {
+      setIsAddingRecipeItems(false);
+    }
+  };
+
   const filteredRecipes = recipes.filter(r => {
     const q = searchQuery.toLowerCase();
     if (!q) return true;
@@ -512,6 +560,14 @@ const FoodPlanner: React.FC = () => {
                       <h3 className="font-serif italic text-lg text-white">{recipe.title}</h3>
                     </div>
                     <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => generateFromRecipe(recipe)}
+                        disabled={isGeneratingRecipe === recipe.id}
+                        className="text-slate-500 hover:text-emerald-400 p-1.5 disabled:opacity-50"
+                        title="Generoi kauppalista"
+                      >
+                        {isGeneratingRecipe === recipe.id ? <Loader2 size={16} className="animate-spin" /> : <ShoppingCart size={16} />}
+                      </button>
                       <button onClick={() => editRecipe(recipe)} className="text-slate-500 hover:text-indigo-400 p-1.5" title="Muokkaa">
                         <Utensils size={16} />
                       </button>
@@ -775,6 +831,85 @@ const FoodPlanner: React.FC = () => {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ===== RECIPE SHOPPING PREVIEW MODAL ===== */}
+      {recipePreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setRecipePreview(null)}>
+          <div className="absolute inset-0 bg-black/70" />
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="relative bg-slate-900 rounded-3xl p-6 border border-slate-800 w-full max-w-2xl max-h-[85vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between mb-1">
+              <h3 className="text-xl font-serif italic text-white flex items-center gap-2">
+                <ShoppingCart size={20} className="text-indigo-400" /> {recipePreview.recipe.title}
+              </h3>
+              <button onClick={() => setRecipePreview(null)} className="text-slate-500 hover:text-white p-1" title="Sulje">
+                <X size={20} />
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mb-5">
+              Kaapista jo löytyvät ainekset on suodatettu. Lisää puuttuvat suoraan ostoslistalle.
+            </p>
+
+            {recipePreview.items.length === 0 ? (
+              <div className="p-8 text-center bg-slate-950 rounded-2xl border border-slate-800">
+                <p className="text-slate-500 font-serif italic">Ei aineksia tässä reseptissä.</p>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                  <div>
+                    <h5 className="text-[10px] uppercase tracking-widest font-bold text-rose-400 mb-3">Ostettava ({recipePreview.items.filter(i => !i.already_in_pantry).length})</h5>
+                    <div className="space-y-2">
+                      {recipePreview.items.filter(i => !i.already_in_pantry).map((item, idx) => (
+                        <div key={idx} className="flex items-center justify-between bg-slate-950 rounded-xl p-3 border border-slate-800">
+                          <div>
+                            <p className="text-sm font-medium text-slate-200">{item.item}</p>
+                            <p className="text-xs text-slate-500">{item.amount}</p>
+                          </div>
+                          <Circle size={16} className="text-rose-500/60 shrink-0" />
+                        </div>
+                      ))}
+                      {recipePreview.items.filter(i => !i.already_in_pantry).length === 0 && (
+                        <p className="text-xs text-slate-600 font-serif italic">Kaikki ainekset löytyvät kaapista!</p>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <h5 className="text-[10px] uppercase tracking-widest font-bold text-emerald-400 mb-3">Kaapissa ({recipePreview.items.filter(i => i.already_in_pantry).length})</h5>
+                    <div className="space-y-2">
+                      {recipePreview.items.filter(i => i.already_in_pantry).map((item, idx) => (
+                        <div key={idx} className="flex items-center justify-between bg-slate-950 rounded-xl p-3 border border-slate-800 opacity-60">
+                          <div>
+                            <p className="text-sm font-medium text-slate-400">{item.item}</p>
+                            <p className="text-xs text-slate-600">{item.amount}</p>
+                          </div>
+                          <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
+                        </div>
+                      ))}
+                      {recipePreview.items.filter(i => i.already_in_pantry).length === 0 && (
+                        <p className="text-xs text-slate-600 font-serif italic">Kaappi ei auta tässä — kaikki ostettava.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={addRecipeMissingToShopping}
+                  disabled={isAddingRecipeItems || recipePreview.items.every(i => i.already_in_pantry)}
+                  className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2"
+                >
+                  {isAddingRecipeItems ? <Loader2 size={18} className="animate-spin" /> : <ShoppingCart size={18} />}
+                  {isAddingRecipeItems ? 'Lisätään...' : `Lisää puuttuvat ostoslistalle (${recipePreview.items.filter(i => !i.already_in_pantry).length})`}
+                </button>
+              </>
+            )}
+          </motion.div>
         </div>
       )}
     </div>
